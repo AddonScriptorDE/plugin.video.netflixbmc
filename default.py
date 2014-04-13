@@ -15,6 +15,7 @@ import xbmcplugin
 import xbmcgui
 import xbmcaddon
 
+
 socket.setdefaulttimeout(30)
 pluginhandle = int(sys.argv[1])
 addon = xbmcaddon.Addon()
@@ -27,6 +28,7 @@ osOsx = xbmc.getCondVisibility('system.platform.osx')
 addonUserDataFolder = xbmc.translatePath("special://profile/addon_data/"+addonID)
 icon = xbmc.translatePath('special://home/addons/'+addonID+'/icon.png')
 utilityPath = xbmc.translatePath('special://home/addons/'+addonID+'/resources/NetfliXBMC_Utility.exe')
+sendKeysPath = xbmc.translatePath('special://home/addons/'+addonID+'/resources/NetfliXBMC_SendKeys.exe')
 downloadScript = xbmc.translatePath('special://home/addons/'+addonID+'/download.py')
 searchHistoryFolder = os.path.join(addonUserDataFolder, "history")
 cacheFolder = os.path.join(addonUserDataFolder, "cache")
@@ -48,6 +50,7 @@ singleProfile = addon.getSetting("singleProfile") == "true"
 showProfiles = addon.getSetting("showProfiles") == "true"
 forceView = addon.getSetting("forceView") == "true"
 useUtility = addon.getSetting("useUtility") == "true"
+remoteControl = addon.getSetting("remoteControl") == "true"
 updateDB = addon.getSetting("updateDB") == "true"
 useTMDb = addon.getSetting("useTMDb") == "true"
 username = addon.getSetting("username")
@@ -160,7 +163,7 @@ def listVideo(videoID, title, thumbUrl, tvshowIsEpisode, hideMovies):
     mpaa = ""
     if match:
         mpaa = match[0]
-    match = re.compile('<span class="duration".*?>(.+?)<\/span>', re.DOTALL).findall(videoDetails)
+    match = re.compile('<span class="duration.*?".*?>(.+?)<\/span>', re.DOTALL).findall(videoDetails)
     duration = ""
     if match:
         duration = match[0].lower()
@@ -352,7 +355,7 @@ def addMyListToLibrary():
                 year = ""
                 if match:
                     year = match[0]
-                match = re.compile('<span class="duration".*?>(.+?)<\/span>', re.DOTALL).findall(videoDetails)
+                match = re.compile('<span class="duration.*?".*?>(.+?)<\/span>', re.DOTALL).findall(videoDetails)
                 duration = ""
                 if match:
                     duration = match[0].lower()
@@ -430,18 +433,25 @@ def playVideo(id):
                 subprocess.Popen('"'+path64+'" -k "'+url+'"', shell=False)
         else:
             xbmc.executebuiltin("RunPlugin(plugin://plugin.program.chrome.launcher/?url="+urllib.quote_plus(url)+"&mode=showSite&kiosk="+kiosk+")")
-        if useUtility:
+        if useUtility and not remoteControl:
             subprocess.Popen('"'+utilityPath+'"', shell=False)
+        elif useUtility and remoteControl:
+            subprocess.Popen('"'+utilityPath+'"'+' focusOnly=yes', shell=False)
+    if remoteControl:
+        myWindow = window('window.xml', addon.getAddonInfo('path'), 'default',)
+        myWindow.doModal()    
 
 
 def configureUtility():
     if osWin:
-        subprocess.Popen('"'+utilityPath+'"'+' yes', shell=False)
+        subprocess.Popen('"'+utilityPath+'"'+' config=yes', shell=False)
 
 
 def deleteCookies():
     if os.path.exists(cookieFile):
         os.remove(cookieFile)
+    if os.path.exists(localeFile):
+        os.remove(localeFile)
 
 
 def deleteCache():
@@ -470,7 +480,7 @@ def removeFromQueue(id):
 
 
 def login():
-    content = opener.open("http://movies.netflix.com/").read()
+    content = opener.open("http://movies.netflix.com/Login").read()
     match = re.compile('"LOCALE":"(.+?)"', re.DOTALL).findall(content)
     if match and not os.path.exists(localeFile):
         fh = open(localeFile, 'w')
@@ -653,7 +663,10 @@ def addVideoDir(name, url, mode, iconimage, videoType="", desc="", duration="", 
     elif videoType == "movie":
         entries.append((translation(30122), 'RunPlugin(plugin://plugin.video.netflixbmc/?mode=addMovieToLibrary&url='+urllib.quote_plus(url)+'&name='+urllib.quote_plus(name.strip()+' ('+year+')')+')',))
     liz.addContextMenuItems(entries)
-    ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=True)
+    if mode == "playVideo":
+        ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=False)
+    else:
+        ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=True)
     return ok
 
 
@@ -683,7 +696,10 @@ def addVideoDirR(name, url, mode, iconimage, videoType="", desc="", duration="",
     elif videoType == "movie":
         entries.append((translation(30122), 'RunPlugin(plugin://plugin.video.netflixbmc/?mode=addMovieToLibrary&url='+urllib.quote_plus(url)+'&name='+str(name.strip()+' ('+year+')')+')',))
     liz.addContextMenuItems(entries)
-    ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=True)
+    if mode == "playVideo":
+        ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=False)
+    else:
+        ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=True)
     return ok
 
 
@@ -720,6 +736,87 @@ def addEpisodeDir(name, url, mode, iconimage, desc="", duration="", season="", e
         liz.setProperty("fanart_image", coverFile)
     ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=True)
     return ok
+
+
+class window(xbmcgui.WindowXMLDialog):
+    def onAction(self, action):
+        ACTION_SELECT_ITEM = 7
+        ACTION_PARENT_DIR = 9
+        ACTION_PREVIOUS_MENU = 10
+        ACTION_STOP = 13
+        ACTION_SHOW_INFO = 11
+        ACTION_SHOW_GUI = 18
+        ACTION_MOVE_LEFT = 1
+        ACTION_MOVE_RIGHT = 2
+        ACTION_MOVE_UP = 3
+        ACTION_MOVE_DOWN = 4
+        KEY_BUTTON_BACK = 275
+        if osWin:
+            proc = subprocess.Popen('WMIC PROCESS get Caption', shell=True, stdout=subprocess.PIPE)
+            procAll = ""
+            for line in proc.stdout:
+                procAll+=line
+            if "chrome.exe" in procAll or "iexplore.exe" in procAll:
+                if action in [ACTION_SHOW_INFO, ACTION_SHOW_GUI, ACTION_STOP, ACTION_PARENT_DIR, ACTION_PREVIOUS_MENU, KEY_BUTTON_BACK]:
+                    subprocess.Popen('"'+sendKeysPath+'"'+' sendKey=Close', shell=False)
+                    self.close()
+                elif action==ACTION_SELECT_ITEM:
+                    subprocess.Popen('"'+sendKeysPath+'"'+' sendKey=PlayPause', shell=False)
+                elif action==ACTION_MOVE_LEFT:
+                    subprocess.Popen('"'+sendKeysPath+'"'+' sendKey=SeekLeft', shell=False)
+                elif action==ACTION_MOVE_RIGHT:
+                    subprocess.Popen('"'+sendKeysPath+'"'+' sendKey=SeekRight', shell=False)
+                elif action==ACTION_MOVE_UP:
+                    subprocess.Popen('"'+sendKeysPath+'"'+' sendKey=VolumeUp', shell=False)
+                elif action==ACTION_MOVE_DOWN:
+                    subprocess.Popen('"'+sendKeysPath+'"'+' sendKey=VolumeDown', shell=False)
+            else:
+                self.close()
+        elif osLinux:
+            proc = subprocess.Popen('/bin/ps ax', shell=True, stdout=subprocess.PIPE)
+            procAll = ""
+            for line in proc.stdout:
+                procAll+=line
+            if "chrome" in procAll or "chromium" in procAll:
+                if action in [ACTION_SHOW_INFO, ACTION_SHOW_GUI, ACTION_STOP, ACTION_PARENT_DIR, ACTION_PREVIOUS_MENU, KEY_BUTTON_BACK]:
+                    subprocess.Popen('xdotool key esc', shell=True)
+                    subprocess.Popen('xdotool key alt+f4', shell=True)
+                    self.close()
+                elif action==ACTION_SELECT_ITEM:
+                    subprocess.Popen('xdotool key return', shell=True)
+                elif action==ACTION_MOVE_LEFT:
+                    subprocess.Popen('xdotool key left', shell=True)
+                elif action==ACTION_MOVE_RIGHT:
+                    subprocess.Popen('xdotool key right', shell=True)
+                elif action==ACTION_MOVE_UP:
+                    subprocess.Popen('xdotool key up', shell=True)
+                elif action==ACTION_MOVE_DOWN:
+                    subprocess.Popen('xdotool key down', shell=True)
+            else:
+                self.close()
+        elif osOSX:
+            proc = subprocess.Popen('/bin/ps ax', shell=True, stdout=subprocess.PIPE)
+            procAll = ""
+            for line in proc.stdout:
+                procAll+=line
+            if "chrome" in procAll or "safari" in procAll:
+                if action in [ACTION_SHOW_INFO, ACTION_SHOW_GUI, ACTION_STOP, ACTION_PARENT_DIR, ACTION_PREVIOUS_MENU, KEY_BUTTON_BACK]:
+                    subprocess.Popen('cliclick kd:alt', shell=True)
+                    subprocess.Popen('cliclick kp:f4', shell=True)
+                    self.close()
+                elif action==ACTION_SELECT_ITEM:
+                    subprocess.Popen('cliclick kp:return', shell=True)
+                elif action==ACTION_MOVE_LEFT:
+                    subprocess.Popen('cliclick kp:arrow-left', shell=True)
+                elif action==ACTION_MOVE_RIGHT:
+                    subprocess.Popen('cliclick kp:arrow-right', shell=True)
+                elif action==ACTION_MOVE_UP:
+                    subprocess.Popen('cliclick kp:arrow-up', shell=True)
+                elif action==ACTION_MOVE_DOWN:
+                    subprocess.Popen('cliclick kp:arrow-down', shell=True)
+            else:
+                self.close()
+
 
 params = parameters_string_to_dict(sys.argv[2])
 mode = urllib.unquote_plus(params.get('mode', ''))

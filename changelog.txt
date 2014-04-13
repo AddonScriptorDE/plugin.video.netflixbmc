@@ -68,3 +68,8 @@
 - Control Utitlity (Win): Added settings
 1.2.5
 - Fixed problems for non US users
+1.2.6
+- Fixed login problem
+- Fixed gotham message bug
+- Some other small fixes
+- Added remote/webcontrol support
